@@ -8,10 +8,12 @@ from random import randrange
 from argparse import ArgumentParser
 from tqdm import tqdm
 import os
+import shutil
 
 def init_parser():
     parser = ArgumentParser(description='Note extraction')
-    parser.add_argument("--top_db", type=float, default=42, help="Top db parameter that defines threshold when the note is still considered to be played")
+    parser.add_argument("--top_db", type=float, default=40, help="Top db parameter that defines threshold when the note is still considered to be played")
+    parser.add_argument("--input_folder",  type=str, default="audio", help="Input folder that contains audio")
     parser.add_argument("--audio_file",  type=str, default="heckelphone.wav", help="Audio file from which the notes should be extracted")
     parser.add_argument("--min_duration", type=float, default=0.7, help="Minimum duration of each played note")
     parser.add_argument("--loudness", type=bool, default=False, help="If adding the estimated loudness to the file name is desired")
@@ -45,14 +47,35 @@ def plot_all_notes(y_trimmed):
     plt.legend(loc='upper right')
     plt.xlim(0, len(y_trimmed) / sr)
     plt.tight_layout()
-    plt.savefig(f"All_notes.pdf")
+    plt.savefig(f"visualisations/All_notes.pdf")
     plt.show()
 
 def plot_random_note(filtered_intervals):
     num_note =randrange(len(filtered_intervals))
     plt.plot(notes[num_note])  # plot the waveform of the extracted note
     plt.title(f"Waveform of extracted note #{num_note}")
-    plt.savefig(f"Note_{num_note}.pdf")
+    plt.savefig(f"visualisations/Note_{num_note}.pdf")
+
+def trim_silence(y, top_db = 40):
+    y_trimmed, idx = librosa.effects.trim(
+    y,
+    top_db=top_db  # threshold in dB below reference
+)
+    # alternatively, beginning of the track can be manually trimmed 
+    #y_trimmed = y[10*sr:] # removing noise in the beginning that lasted approximately 10 seconds
+    return y_trimmed
+
+def concatenate_with_clicks(notes):
+    click_duration =1  
+    click_freq = 1000  
+    click_sr = 22050 
+    # adding clicks to separate notes
+    t = np.linspace(0, click_duration, int(click_sr * click_duration), endpoint=False)
+    click = 0.1 * np.sin(2 * np.pi * click_freq * t) 
+    concatenated_audio = notes[0]
+    for note in notes[1:]:
+        concatenated_audio = np.concatenate((concatenated_audio, click, note))
+    return concatenated_audio
 
 def detect_note(note,sr = 48000):
 
@@ -63,7 +86,6 @@ def detect_note(note,sr = 48000):
         fmin=librosa.note_to_hz("C2"),  
         fmax=librosa.note_to_hz("C7"),  
     )
-
     # remove frames with no f0
     f0_valid = f0[~np.isnan(f0)]
     if len(f0_valid) == 0:
@@ -112,14 +134,11 @@ if __name__ == '__main__':
     parser = init_parser()
     args = parser.parse_args()
 
-    y, sr = librosa.load(args.audio_file, sr=None)
+    y, sr = librosa.load(os.path.join(args.input_folder, args.audio_file), sr=None)
     # removing noise in the beginning that lasted approximately 10 seconds
-    y_trimmed = y[10*sr:]
-
-    # getting individual notes, parameter top_db defines how sensitive the cut is
-    intervals = librosa.effects.split(y_trimmed, top_db=args.top_db)  
+    y_trimmed = trim_silence(y, top_db=args.top_db)
+    intervals = librosa.effects.split(y_trimmed, top_db=args.top_db)  # getting individual notes, parameter top_db defines how sensitive the cut is
     print(f"Number of intervals is {len(intervals)}")
-
     # define the minimum duration of the note
     min_note_duration =  sr*args.min_duration
     diff =  [intervals[i][1] - intervals[i][0] for i in range(len(intervals))]  # calculating the time difference between extracted notes
@@ -127,14 +146,15 @@ if __name__ == '__main__':
     print(f"Number of extracted notes after filtering is {len(filtered_intervals)}")
 
     # increasing the note intervals to capture the attacks and decays properly
-    start_addition = int(0.2*sr)
-    end_addition =  int(0.25*sr)
+    start_addition = int(0.1*sr)
+    end_addition =  int(0.2*sr)
     notes = []                                           
     for i, (start, end) in enumerate(filtered_intervals):
         # adding little time the beginning for attack 
         note = y_trimmed[start-start_addition:end+ end_addition]  
         notes.append(note)
 
+    os.makedirs("visualisations", exist_ok=True)
     # plotting a random note
     plot_random_note(filtered_intervals)
     # plotting all notes together
@@ -152,4 +172,9 @@ if __name__ == '__main__':
         wav_file_path = os.path.join(args.output_folder, f"{args.instrument}_{dynamics}_{note_name}.wav")
         sf.write(wav_file_path,note, sr)
 
-  
+    # saving concatenated notes in one file as a sanity check
+    concatenated_audio = concatenate_with_clicks(notes)
+    wav_file =f"{args.output_folder}\\concatenated_result.wav"    
+    sf.write(wav_file,concatenated_audio, sr)
+    shutil.make_archive("results", 'zip',"results") 
+
