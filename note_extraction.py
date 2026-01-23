@@ -15,7 +15,7 @@ def init_parser():
     parser.add_argument("--top_db", type=float, default=40, help="Top db parameter that defines threshold when the note is still considered to be played")
     parser.add_argument("--input_folder",  type=str, default="audio", help="Input folder that contains audio")
     parser.add_argument("--audio_file",  type=str, default="heckelphone.wav", help="Audio file from which the notes should be extracted")
-    parser.add_argument("--min_duration", type=float, default=0.7, help="Minimum duration of each played note")
+    parser.add_argument("--min_duration", type=float, default=1, help="Minimum duration of each played note")
     parser.add_argument("--loudness", type=bool, default=False, help="If adding the estimated loudness to the file name is desired")
     parser.add_argument("--output_folder", type=str, default="results", help="Output folder name")
     parser.add_argument("--instrument", type=str, default="Heckelphone", help="Name of the instrument")
@@ -23,19 +23,6 @@ def init_parser():
     return parser
 
 def plot_all_notes(y_trimmed):
-    frame_length = 2048  # length of each frame for analysis
-    hop_length = 512     # number of samples between frames
-
-    rms = librosa.feature.rms(y=y_trimmed, frame_length=frame_length, hop_length=hop_length)[0]
-    amplitude = np.abs(y_trimmed)
-
-    frames = range(len(rms))
-    times = librosa.frames_to_time(frames, sr=sr, hop_length=hop_length)
-    # adjust height and distance as needed
-    peaks, _ = find_peaks(rms, height=0.01, distance=200)  
-
-    num_peaks = len(peaks)
-
     plt.figure(figsize=(20, 6))
     librosa.display.waveshow(y_trimmed, sr=sr, alpha=0.5)
     plt.title('Waveform')
@@ -57,7 +44,7 @@ def plot_random_note(filtered_intervals):
     plt.savefig(f"figures/Note_{num_note}.pdf")
 
 def trim_silence(y, top_db = 40):
-    y_trimmed, idx = librosa.effects.trim(
+    y_trimmed, _ = librosa.effects.trim(
     y,
     top_db=top_db  # threshold in dB below reference
 )
@@ -79,22 +66,20 @@ def concatenate_with_clicks(notes):
 
 def detect_note(note,sr = 48000):
 
-    # get the fundamental frequency f0
+    # getting the fundamental frequency f0
     f0 = librosa.yin(
         note,
         sr=sr,
         fmin=librosa.note_to_hz("C2"),  
         fmax=librosa.note_to_hz("C7"),  
     )
-    # remove frames with no f0
+    # removing frames with no f0
     f0_valid = f0[~np.isnan(f0)]
     if len(f0_valid) == 0:
         raise ValueError("No valid f0 detected. Maybe too noisy or silence?")
-
-    # use median f0 as an estimate
+    # using median f0 as an estimate
     f0_median = np.median(f0_valid)
-
-    # convert frequency to note name
+    # converting frequency to note name
     note_name = librosa.hz_to_note(f0_median)
 
     return note_name
@@ -103,7 +88,7 @@ def estimate_loudness_db(note):
     # RMS amplitude
     rms = np.sqrt(np.mean(note**2))
     
-    # convert to dB
+    # converting to dB
     rms_db = 20 * np.log10(rms + 1e-12)
     return rms_db
 
@@ -135,11 +120,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     y, sr = librosa.load(os.path.join(args.input_folder, args.audio_file), sr=None)
-    # removing noise in the beginning that lasted approximately 10 seconds
+    # removing noise in the beginning 
     y_trimmed = trim_silence(y, top_db=args.top_db)
     intervals = librosa.effects.split(y_trimmed, top_db=args.top_db)  # getting individual notes, parameter top_db defines how sensitive the cut is
     print(f"Number of intervals is {len(intervals)}")
-    # define the minimum duration of the note
+    # defining the minimum duration of the note
     min_note_duration =  sr*args.min_duration
     diff =  [intervals[i][1] - intervals[i][0] for i in range(len(intervals))]  # calculating the time difference between extracted notes
     filtered_intervals =  [interval for i, interval in enumerate(intervals) if diff[i] >= min_note_duration] # removing noise that last less a thershold
@@ -169,7 +154,7 @@ if __name__ == '__main__':
     for i, note in tqdm(enumerate(notes)):
         note_name = detect_note(note, sr)
         dynamics = loudness_to_dynamic(estimate_loudness_db(note), boundaries=(p_mp, mp_mf, mf_f)) if args.loudness else "mf"
-        wav_file_path = os.path.join(args.output_folder, f"{args.instrument}_{dynamics}_{note_name}.wav")
+        wav_file_path = os.path.join(args.output_folder, f"{args.instrument}_{note_name}_{dynamics}.wav")
         sf.write(wav_file_path,note, sr)
 
     # saving concatenated notes in one file as a sanity check
