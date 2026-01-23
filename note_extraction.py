@@ -47,14 +47,14 @@ def plot_all_notes(y_trimmed):
     plt.legend(loc='upper right')
     plt.xlim(0, len(y_trimmed) / sr)
     plt.tight_layout()
-    plt.savefig(f"visualisations/All_notes.pdf")
-    plt.show()
+    plt.savefig(f"figures/All_notes.pdf")
+    #plt.show()
 
 def plot_random_note(filtered_intervals):
     num_note =randrange(len(filtered_intervals))
     plt.plot(notes[num_note])  # plot the waveform of the extracted note
     plt.title(f"Waveform of extracted note #{num_note}")
-    plt.savefig(f"visualisations/Note_{num_note}.pdf")
+    plt.savefig(f"figures/Note_{num_note}.pdf")
 
 def trim_silence(y, top_db = 40):
     y_trimmed, idx = librosa.effects.trim(
@@ -154,7 +154,7 @@ if __name__ == '__main__':
         note = y_trimmed[start-start_addition:end+ end_addition]  
         notes.append(note)
 
-    os.makedirs("visualisations", exist_ok=True)
+    os.makedirs("figures", exist_ok=True)
     # plotting a random note
     plot_random_note(filtered_intervals)
     # plotting all notes together
